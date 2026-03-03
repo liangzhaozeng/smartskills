@@ -107,7 +107,7 @@ const skillsData = [
 ];
 
 async function main() {
-  // Create a seed user
+  // Create seed users
   const user = await prisma.user.upsert({
     where: { email: "admin@example.com" },
     update: {},
@@ -115,6 +115,16 @@ async function main() {
       email: "admin@example.com",
       name: "Admin User",
       role: "ADMIN",
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: "member@example.com" },
+    update: {},
+    create: {
+      email: "member@example.com",
+      name: "Member User",
+      role: "MEMBER",
     },
   });
 
