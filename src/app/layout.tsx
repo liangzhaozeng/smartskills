@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fira_Mono } from "next/font/google";
+import { Providers } from "@/components/providers";
 import "./globals.css";
 
 const firaMono = Fira_Mono({
@@ -21,7 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${firaMono.variable} antialiased`}>
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
