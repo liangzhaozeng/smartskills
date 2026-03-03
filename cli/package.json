@@ -1,0 +1,16 @@
+{
+  "name": "@yourorg/skills-cli",
+  "version": "1.0.0",
+  "description": "CLI tool for installing skills from the Skills Directory",
+  "bin": {
+    "skills": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
