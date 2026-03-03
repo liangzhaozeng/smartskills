@@ -12,6 +12,7 @@ export const mockPrisma = {
   skill: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
+    count: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -27,6 +28,11 @@ export const mockPrisma = {
     create: vi.fn(),
     count: vi.fn(),
   },
+  $transaction: vi.fn((arg: unknown) => {
+    if (Array.isArray(arg)) return Promise.all(arg);
+    if (typeof arg === "function") return (arg as Function)(mockPrisma);
+    return Promise.resolve();
+  }),
 };
 
 vi.mock("@/lib/prisma", () => ({

@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { hotScore } from "@/lib/utils";
+import { publishSkillSchema } from "@/lib/validations";
 import slugify from "slugify";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const sort = searchParams.get("sort") || "all-time";
   const search = searchParams.get("search") || "";
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
+  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50")));
 
   const where = search
     ? {
@@ -15,6 +19,7 @@ export async function GET(request: NextRequest) {
           { name: { contains: search, mode: "insensitive" as const } },
           { description: { contains: search, mode: "insensitive" as const } },
           { slug: { contains: search, mode: "insensitive" as const } },
+          { tags: { has: search } },
         ],
       }
     : {};
@@ -36,7 +41,8 @@ export async function GET(request: NextRequest) {
     });
 
     skills.sort((a, b) => b._count.installs - a._count.installs);
-    return NextResponse.json(skills);
+    const paginated = skills.slice((page - 1) * limit, page * limit);
+    return NextResponse.json({ skills: paginated, total: skills.length, page, limit });
   }
 
   if (sort === "hot") {
@@ -55,27 +61,28 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const now = Date.now();
-    skills.sort((a, b) => {
-      const hoursA = (now - new Date(a.createdAt).getTime()) / 3600000;
-      const hoursB = (now - new Date(b.createdAt).getTime()) / 3600000;
-      const scoreA = a._count.installs / Math.pow(hoursA + 2, 1.5);
-      const scoreB = b._count.installs / Math.pow(hoursB + 2, 1.5);
-      return scoreB - scoreA;
-    });
-    return NextResponse.json(skills);
+    skills.sort((a, b) =>
+      hotScore(b._count.installs, b.createdAt) - hotScore(a._count.installs, a.createdAt)
+    );
+    const paginated = skills.slice((page - 1) * limit, page * limit);
+    return NextResponse.json({ skills: paginated, total: skills.length, page, limit });
   }
 
-  // Default: all-time
-  const skills = await prisma.skill.findMany({
-    where,
-    orderBy: { installCount: "desc" },
-    include: {
-      author: { select: { name: true, image: true } },
-    },
-  });
+  // Default: all-time with DB-level pagination
+  const [skills, total] = await Promise.all([
+    prisma.skill.findMany({
+      where,
+      orderBy: { installCount: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+      include: {
+        author: { select: { name: true, image: true } },
+      },
+    }),
+    prisma.skill.count({ where }),
+  ]);
 
-  return NextResponse.json(skills);
+  return NextResponse.json({ skills, total, page, limit });
 }
 
 export async function POST(request: NextRequest) {
@@ -85,15 +92,16 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { name, description, readme, sourceType, repoUrl, category, tags, files } = body;
+  const parsed = publishSkillSchema.safeParse(body);
 
-  if (!name || !description || !sourceType) {
+  if (!parsed.success) {
     return NextResponse.json(
-      { error: "name, description, and sourceType are required" },
+      { error: parsed.error.issues.map((i) => i.message).join(", ") },
       { status: 400 }
     );
   }
 
+  const { name, description, readme, sourceType, repoUrl, category, tags, files } = parsed.data;
   const slug = slugify(name, { lower: true, strict: true });
 
   const existing = await prisma.skill.findUnique({ where: { slug } });
@@ -117,7 +125,7 @@ export async function POST(request: NextRequest) {
       authorId: session.user.id,
       files: files?.length
         ? {
-            create: files.map((f: { filename: string; content: string; path: string }) => ({
+            create: files.map((f) => ({
               filename: f.filename,
               content: f.content,
               path: f.path || "/",

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { formatCount } from "@/lib/utils";
+import { formatCount, hotScore } from "@/lib/utils";
 
 interface LeaderboardProps {
   sort?: string;
@@ -52,14 +52,9 @@ export async function Leaderboard({ sort = "all-time", search }: LeaderboardProp
         },
       },
     });
-    const now = Date.now();
-    result.sort((a, b) => {
-      const hoursA = (now - new Date(a.createdAt).getTime()) / 3600000;
-      const hoursB = (now - new Date(b.createdAt).getTime()) / 3600000;
-      const scoreA = a._count.installs / Math.pow(hoursA + 2, 1.5);
-      const scoreB = b._count.installs / Math.pow(hoursB + 2, 1.5);
-      return scoreB - scoreA;
-    });
+    result.sort((a, b) =>
+      hotScore(b._count.installs, b.createdAt) - hotScore(a._count.installs, a.createdAt)
+    );
     skills = result;
   } else {
     skills = await prisma.skill.findMany({

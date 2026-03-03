@@ -11,6 +11,11 @@ vi.mock("slugify", () => ({
   },
 }));
 
+vi.mock("@/lib/validations", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/lib/validations")>();
+  return mod;
+});
+
 const { GET, POST } = await import("./route");
 
 function createRequest(url: string, options?: RequestInit) {
@@ -25,11 +30,14 @@ describe("GET /api/skills", () => {
   it("returns skills sorted by installCount (all-time) by default", async () => {
     const skills = [{ id: "1", name: "Skill A", installCount: 100 }];
     mockPrisma.skill.findMany.mockResolvedValue(skills);
+    mockPrisma.skill.count.mockResolvedValue(1);
 
     const response = await GET(createRequest("/api/skills"));
     const data = await response.json();
 
-    expect(data).toEqual(skills);
+    expect(data.skills).toEqual(skills);
+    expect(data.total).toBe(1);
+    expect(data.page).toBe(1);
     expect(mockPrisma.skill.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         orderBy: { installCount: "desc" },
@@ -37,8 +45,9 @@ describe("GET /api/skills", () => {
     );
   });
 
-  it("supports search param", async () => {
+  it("supports search param including tags", async () => {
     mockPrisma.skill.findMany.mockResolvedValue([]);
+    mockPrisma.skill.count.mockResolvedValue(0);
 
     await GET(createRequest("/api/skills?search=react"));
 
@@ -49,13 +58,14 @@ describe("GET /api/skills", () => {
             { name: { contains: "react", mode: "insensitive" } },
             { description: { contains: "react", mode: "insensitive" } },
             { slug: { contains: "react", mode: "insensitive" } },
+            { tags: { has: "react" } },
           ],
         },
       })
     );
   });
 
-  it("returns trending sort (last 24h installs)", async () => {
+  it("returns trending sort (last 24h installs) with pagination", async () => {
     const skills = [
       { id: "1", name: "A", _count: { installs: 10 } },
       { id: "2", name: "B", _count: { installs: 5 } },
@@ -65,8 +75,8 @@ describe("GET /api/skills", () => {
     const response = await GET(createRequest("/api/skills?sort=trending"));
     const data = await response.json();
 
-    // Should be sorted by recent install count descending
-    expect(data[0]._count.installs).toBeGreaterThanOrEqual(data[1]._count.installs);
+    expect(data.skills[0]._count.installs).toBeGreaterThanOrEqual(data.skills[1]._count.installs);
+    expect(data.total).toBe(2);
   });
 
   it("returns hot sort using decay formula", async () => {
@@ -80,12 +90,12 @@ describe("GET /api/skills", () => {
     const response = await GET(createRequest("/api/skills?sort=hot"));
     const data = await response.json();
 
-    expect(data).toHaveLength(2);
-    // Just verifying it doesn't throw - exact ordering depends on the decay math
+    expect(data.skills).toHaveLength(2);
   });
 
   it("returns empty search with no search param", async () => {
     mockPrisma.skill.findMany.mockResolvedValue([]);
+    mockPrisma.skill.count.mockResolvedValue(0);
 
     await GET(createRequest("/api/skills"));
 
@@ -94,6 +104,33 @@ describe("GET /api/skills", () => {
         where: {},
       })
     );
+  });
+
+  it("supports pagination params", async () => {
+    mockPrisma.skill.findMany.mockResolvedValue([]);
+    mockPrisma.skill.count.mockResolvedValue(100);
+
+    const response = await GET(createRequest("/api/skills?page=2&limit=10"));
+    const data = await response.json();
+
+    expect(data.page).toBe(2);
+    expect(data.limit).toBe(10);
+    expect(mockPrisma.skill.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 10,
+        take: 10,
+      })
+    );
+  });
+
+  it("clamps limit to max 100", async () => {
+    mockPrisma.skill.findMany.mockResolvedValue([]);
+    mockPrisma.skill.count.mockResolvedValue(0);
+
+    const response = await GET(createRequest("/api/skills?limit=500"));
+    const data = await response.json();
+
+    expect(data.limit).toBe(100);
   });
 });
 
@@ -126,8 +163,6 @@ describe("POST /api/skills", () => {
     );
 
     expect(response.status).toBe(400);
-    const data = await response.json();
-    expect(data.error).toContain("name, description, and sourceType are required");
   });
 
   it("returns 400 when description is missing", async () => {
@@ -143,13 +178,13 @@ describe("POST /api/skills", () => {
     expect(response.status).toBe(400);
   });
 
-  it("returns 400 when sourceType is missing", async () => {
+  it("returns 400 when sourceType is invalid", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "u1", role: "MEMBER" } });
 
     const response = await POST(
       createRequest("/api/skills", {
         method: "POST",
-        body: JSON.stringify({ name: "Test", description: "desc" }),
+        body: JSON.stringify({ name: "Test", description: "desc", sourceType: "INVALID" }),
       })
     );
 

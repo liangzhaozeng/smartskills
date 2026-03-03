@@ -51,7 +51,7 @@ describe("GET /api/audits", () => {
     );
   });
 
-  it("filters by action when provided", async () => {
+  it("filters by valid action when provided", async () => {
     mockPrisma.auditLog.findMany.mockResolvedValue([]);
     mockPrisma.auditLog.count.mockResolvedValue(0);
 
@@ -62,6 +62,14 @@ describe("GET /api/audits", () => {
         where: { action: "PUBLISH" },
       })
     );
+  });
+
+  it("returns 400 for invalid action filter", async () => {
+    const response = await GET(createRequest("/api/audits?action=INVALID"));
+
+    expect(response.status).toBe(400);
+    const data = await response.json();
+    expect(data.error).toContain("Invalid action filter");
   });
 
   it("uses empty where when no action filter", async () => {

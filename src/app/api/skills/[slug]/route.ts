@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { updateSkillSchema } from "@/lib/validations";
 
 interface RouteContext {
   params: Promise<{ slug: string }>;
@@ -47,7 +48,14 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   }
 
   const body = await request.json();
-  const { name, description, readme, category, tags, verified } = body;
+  const parsed = updateSkillSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues.map((i) => i.message).join(", ") },
+      { status: 400 }
+    );
+  }
+  const { name, description, readme, category, tags, verified } = parsed.data;
 
   const updated = await prisma.skill.update({
     where: { id: skill.id },
@@ -95,16 +103,17 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  await prisma.auditLog.create({
-    data: {
-      skillId: skill.id,
-      userId: session.user.id,
-      action: "DELETE",
-      details: { name: skill.name },
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.auditLog.create({
+      data: {
+        skillId: skill.id,
+        userId: session.user.id,
+        action: "DELETE",
+        details: { name: skill.name },
+      },
+    });
+    await tx.skill.delete({ where: { id: skill.id } });
   });
-
-  await prisma.skill.delete({ where: { id: skill.id } });
 
   return NextResponse.json({ success: true });
 }

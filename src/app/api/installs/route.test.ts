@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockPrisma } from "../../../__tests__/setup";
 
+vi.mock("@/lib/rate-limit", () => ({
+  rateLimit: () => ({ success: true, remaining: 29 }),
+  getRateLimitKey: () => "test-ip",
+}));
+
 const { POST } = await import("./route");
 
 function createRequest(body: object) {
@@ -19,8 +24,6 @@ describe("POST /api/installs", () => {
     const response = await POST(createRequest({ source: "CLI" }));
 
     expect(response.status).toBe(400);
-    const data = await response.json();
-    expect(data.error).toContain("skillSlug and source are required");
   });
 
   it("returns 400 when source is missing", async () => {
@@ -33,8 +36,6 @@ describe("POST /api/installs", () => {
     const response = await POST(createRequest({ skillSlug: "test", source: "INVALID" }));
 
     expect(response.status).toBe(400);
-    const data = await response.json();
-    expect(data.error).toContain("source must be CLI or WEB_CLICK");
   });
 
   it("returns 404 when skill not found", async () => {
@@ -45,7 +46,7 @@ describe("POST /api/installs", () => {
     expect(response.status).toBe(404);
   });
 
-  it("creates install event and increments installCount for CLI source", async () => {
+  it("creates install event and increments installCount atomically for CLI source", async () => {
     mockPrisma.skill.findUnique.mockResolvedValue({ id: "s1" });
     mockPrisma.installEvent.create.mockResolvedValue({});
     mockPrisma.skill.update.mockResolvedValue({});
@@ -55,6 +56,7 @@ describe("POST /api/installs", () => {
     );
 
     expect(response.status).toBe(201);
+    expect(mockPrisma.$transaction).toHaveBeenCalled();
     expect(mockPrisma.installEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

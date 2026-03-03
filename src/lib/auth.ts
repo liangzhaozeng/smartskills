@@ -4,38 +4,42 @@ import { prisma } from "./prisma";
 
 export const authOptions: NextAuthOptions = {
   providers: [
-    CredentialsProvider({
-      name: "Demo Login",
-      credentials: {
-        email: { label: "Email", type: "email", placeholder: "admin@example.com" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email) return null;
-
-        // Find or create the user
-        let user = await prisma.user.findUnique({
-          where: { email: credentials.email },
-        });
-
-        if (!user) {
-          user = await prisma.user.create({
-            data: {
-              email: credentials.email,
-              name: credentials.email.split("@")[0],
-              role: "MEMBER",
+    // Credentials provider is only available in development
+    ...(process.env.NODE_ENV !== "production"
+      ? [
+          CredentialsProvider({
+            name: "Demo Login",
+            credentials: {
+              email: { label: "Email", type: "email", placeholder: "admin@example.com" },
             },
-          });
-        }
+            async authorize(credentials) {
+              if (!credentials?.email) return null;
 
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          image: user.image,
-          role: user.role,
-        };
-      },
-    }),
+              let user = await prisma.user.findUnique({
+                where: { email: credentials.email },
+              });
+
+              if (!user) {
+                user = await prisma.user.create({
+                  data: {
+                    email: credentials.email,
+                    name: credentials.email.split("@")[0],
+                    role: "MEMBER",
+                  },
+                });
+              }
+
+              return {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                image: user.image,
+                role: user.role,
+              };
+            },
+          }),
+        ]
+      : []),
     // Add OIDC provider when configured
     ...(process.env.OIDC_ISSUER
       ? [

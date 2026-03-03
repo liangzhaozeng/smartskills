@@ -238,7 +238,7 @@ describe("DELETE /api/skills/[slug]", () => {
     expect(response.status).toBe(403);
   });
 
-  it("allows author to delete their skill", async () => {
+  it("allows author to delete their skill atomically", async () => {
     mockGetServerSession.mockResolvedValue({ user: { id: "u1", role: "MEMBER" } });
     mockPrisma.skill.findUnique.mockResolvedValue({ id: "s1", authorId: "u1", name: "Test" });
     mockPrisma.auditLog.create.mockResolvedValue({});
@@ -248,6 +248,7 @@ describe("DELETE /api/skills/[slug]", () => {
     const data = await response.json();
 
     expect(data.success).toBe(true);
+    expect(mockPrisma.$transaction).toHaveBeenCalled();
     expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ action: "DELETE" }),

@@ -142,4 +142,19 @@ describe("PUT /api/admin/users", () => {
 
     expect(response.status).toBe(200);
   });
+
+  it("prevents admin from demoting themselves", async () => {
+    mockGetServerSession.mockResolvedValue({ user: { id: "u1", role: "ADMIN" } });
+
+    const response = await PUT(
+      createRequest("/api/admin/users", {
+        method: "PUT",
+        body: JSON.stringify({ userId: "u1", role: "MEMBER" }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    const data = await response.json();
+    expect(data.error).toContain("Cannot demote yourself");
+  });
 });

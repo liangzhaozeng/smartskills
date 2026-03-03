@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { updateUserRoleSchema } from "@/lib/validations";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -31,10 +32,20 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { userId, role } = await request.json();
+  const body = await request.json();
+  const parsed = updateUserRoleSchema.safeParse(body);
 
-  if (!userId || !["ADMIN", "MEMBER"].includes(role)) {
+  if (!parsed.success) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+  }
+
+  const { userId, role } = parsed.data;
+
+  if (userId === session.user.id && role !== "ADMIN") {
+    return NextResponse.json(
+      { error: "Cannot demote yourself" },
+      { status: 400 }
+    );
   }
 
   const updated = await prisma.user.update({
