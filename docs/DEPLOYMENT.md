@@ -9,6 +9,7 @@ This guide covers deploying the Smart Skills Directory to production environment
 - [Option 1: Docker Compose (Recommended)](#option-1-docker-compose-recommended)
 - [Option 2: Manual Deployment](#option-2-manual-deployment)
 - [Option 3: Vercel](#option-3-vercel)
+- [Option 4: AWS EKS](#option-4-aws-eks)
 - [Database Setup](#database-setup)
 - [OIDC / SSO Configuration](#oidc--sso-configuration)
 - [Reverse Proxy](#reverse-proxy)
@@ -286,6 +287,115 @@ Vercel will automatically run `prisma generate` during build if you add it to th
 
 ---
 
+## Option 4: AWS EKS
+
+### Prerequisites
+
+- AWS CLI configured with appropriate permissions
+- `kubectl` configured for your EKS cluster
+- AWS Load Balancer Controller installed in the cluster
+- Amazon RDS PostgreSQL instance
+- Amazon ElastiCache Redis instance (optional but recommended)
+- Amazon ECR repository
+
+### 1. Push image to ECR
+
+```bash
+export AWS_ACCOUNT_ID=123456789012
+export AWS_REGION=ap-southeast-1
+./scripts/ecr-push.sh
+```
+
+### 2. Configure secrets
+
+```bash
+kubectl create namespace skills-directory
+
+kubectl create secret generic skills-directory-secrets \
+  --namespace=skills-directory \
+  --from-literal=DATABASE_URL="postgresql://user:pass@your-rds-host:5432/skills_directory?sslmode=require" \
+  --from-literal=NEXTAUTH_SECRET="$(openssl rand -base64 32)" \
+  --from-literal=REDIS_URL="redis://your-elasticache-host:6379" \
+  --from-literal=OIDC_ISSUER="" \
+  --from-literal=OIDC_CLIENT_ID="" \
+  --from-literal=OIDC_CLIENT_SECRET=""
+```
+
+### 3. Update manifests
+
+Edit `k8s/deployment.yaml`:
+- Replace `ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/skills-directory:latest` with your ECR URI
+
+Edit `k8s/configmap.yaml`:
+- Set `NEXTAUTH_URL` to your domain
+
+Edit `k8s/ingress.yaml`:
+- Replace the ACM certificate ARN
+- Replace `skills.yourcompany.com` with your domain
+
+### 4. Apply manifests
+
+```bash
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/configmap.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+kubectl apply -f k8s/ingress.yaml
+kubectl apply -f k8s/hpa.yaml
+```
+
+### 5. Run database migrations
+
+```bash
+kubectl run migrate --rm -it --restart=Never \
+  --namespace=skills-directory \
+  --image=YOUR_ECR_URI:latest \
+  --env="DATABASE_URL=YOUR_RDS_URL" \
+  -- npx prisma migrate deploy
+```
+
+### 6. Verify
+
+```bash
+kubectl get pods -n skills-directory
+kubectl get ingress -n skills-directory
+kubectl logs -n skills-directory -l app.kubernetes.io/name=skills-directory --tail=50
+```
+
+### Architecture
+
+```
+Internet → ALB (HTTPS/ACM) → EKS Pods (3-10, HPA)
+                                  ├── RDS PostgreSQL
+                                  └── ElastiCache Redis
+```
+
+| Resource | Purpose |
+|----------|---------|
+| EKS Pods | Next.js app (3 min, 10 max via HPA) |
+| RDS PostgreSQL | Database with connection pooling (10/pod) |
+| ElastiCache Redis | Distributed rate limiting |
+| ALB | HTTPS termination, health checks |
+| ECR | Container image registry |
+| ACM | SSL certificate |
+
+### Updating
+
+```bash
+# Build and push new image
+IMAGE_TAG=v1.1.0 ./scripts/ecr-push.sh
+
+# Update deployment
+kubectl set image deployment/skills-directory \
+  app=YOUR_ECR_URI:v1.1.0 \
+  --namespace=skills-directory
+
+# Watch rollout
+kubectl rollout status deployment/skills-directory -n skills-directory
+```
+
+---
+
 ## Database Setup
 
 ### Create the database
@@ -412,24 +522,44 @@ Certbot auto-renews via systemd timer.
 
 ## Health Checks
 
-The application serves requests at the root path. For infrastructure health checks:
+The application provides a dedicated health check endpoint at `/api/health`:
 
 ```bash
-# Basic HTTP check
-curl -f http://localhost:3000/ || exit 1
-
-# API check
-curl -f http://localhost:3000/api/skills || exit 1
+curl -s http://localhost:3000/api/health | jq
 ```
+
+Response (healthy):
+```json
+{
+  "status": "healthy",
+  "checks": { "database": "healthy", "redis": "healthy" },
+  "uptime": 3600,
+  "pod": "skills-directory-abc123",
+  "node": "ip-10-0-1-50"
+}
+```
+
+Response (unhealthy — returns HTTP 503):
+```json
+{
+  "status": "unhealthy",
+  "checks": { "database": "unhealthy", "redis": "healthy" }
+}
+```
+
+### Kubernetes probes
+
+Already configured in `k8s/deployment.yaml`:
+- **Startup probe:** every 5s, 12 attempts (60s total startup window)
+- **Readiness probe:** every 10s (removes pod from service on failure)
+- **Liveness probe:** every 30s (restarts pod on failure)
 
 ### Docker health check
 
-```yaml
-healthcheck:
-  test: ["CMD", "curl", "-f", "http://localhost:3000/"]
-  interval: 30s
-  timeout: 10s
-  retries: 3
+Built into the Dockerfile:
+```
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health
 ```
 
 ---

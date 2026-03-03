@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skills-directory-config
+  namespace: skills-directory
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  NEXTAUTH_URL: "https://skills.yourcompany.com"
+  DB_POOL_MAX: "10"

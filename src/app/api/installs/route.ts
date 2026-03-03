@@ -6,7 +6,7 @@ import { rateLimit, getRateLimitKey } from "@/lib/rate-limit";
 export async function POST(request: NextRequest) {
   // Rate limit: 30 installs per minute per IP
   const ip = getRateLimitKey(request);
-  const { success: withinLimit } = rateLimit(`installs:${ip}`, { limit: 30, windowMs: 60_000 });
+  const { success: withinLimit } = await rateLimit(`installs:${ip}`, { limit: 30, windowMs: 60_000 });
   if (!withinLimit) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }

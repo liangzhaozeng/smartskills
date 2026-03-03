@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockPrisma } from "../../../__tests__/setup";
 
 vi.mock("@/lib/rate-limit", () => ({
-  rateLimit: () => ({ success: true, remaining: 29 }),
+  rateLimit: () => Promise.resolve({ success: true, remaining: 29 }),
   getRateLimitKey: () => "test-ip",
 }));
 

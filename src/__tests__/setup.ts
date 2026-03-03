@@ -28,6 +28,7 @@ export const mockPrisma = {
     create: vi.fn(),
     count: vi.fn(),
   },
+  $queryRawUnsafe: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
   $transaction: vi.fn((arg: unknown) => {
     if (Array.isArray(arg)) return Promise.all(arg);
     if (typeof arg === "function") return (arg as Function)(mockPrisma);
@@ -47,6 +48,11 @@ vi.mock("next-auth", () => ({
 
 vi.mock("@/lib/auth", () => ({
   authOptions: {},
+}));
+
+// Mock redis
+vi.mock("@/lib/redis", () => ({
+  redis: null,
 }));
 
 // Mock next-auth/jwt for middleware tests
