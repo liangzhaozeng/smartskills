@@ -36,58 +36,45 @@ An internal platform for discovering, publishing, and installing reusable AI age
 
 ## Quick Start
 
-### Prerequisites
+### Option A: Docker (Recommended)
 
-- Node.js 20+
-- PostgreSQL 14+ (running and accessible)
+Only requires [Docker Desktop](https://www.docker.com/products/docker-desktop).
 
-### 1. Clone and install
+```bash
+git clone <your-repo-url> skills-directory
+cd skills-directory
+./scripts/setup-dev.sh
+```
+
+This starts PostgreSQL, Redis, and the app with hot reload. Migrations run automatically and demo data is seeded on first boot.
+
+Visit [http://localhost:3000](http://localhost:3000). Click **Sign In** and select a demo user.
+
+```bash
+# Other useful commands
+docker compose down          # Stop everything
+docker compose up -d         # Start in background
+./scripts/reset-db.sh        # Reset database to fresh seed data
+docker compose logs -f app   # Tail app logs
+```
+
+### Option B: Manual Setup
+
+Prerequisites: Node.js 20+, PostgreSQL 14+
 
 ```bash
 git clone <your-repo-url> skills-directory
 cd skills-directory
 npm install
-```
 
-### 2. Configure environment
-
-```bash
 cp .env.example .env
-```
+# Edit .env — set DATABASE_URL to your PostgreSQL connection string
+# Generate a secret: openssl rand -base64 32
 
-Edit `.env` with your values:
-
-```env
-DATABASE_URL="postgresql://your_user@localhost:5432/skills_directory"
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=generate-a-random-secret-here
-```
-
-To generate a secret:
-
-```bash
-openssl rand -base64 32
-```
-
-### 3. Set up the database
-
-```bash
-# Create the database
 createdb skills_directory
-
-# Run migrations
 npx prisma migrate deploy
-
-# Generate Prisma client
 npx prisma generate
-
-# Seed demo data
 npm run seed
-```
-
-### 4. Start the dev server
-
-```bash
 npm run dev
 ```
 
