@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import slugify from "slugify";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -73,4 +76,65 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json(skills);
+}
+
+export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await request.json();
+  const { name, description, readme, sourceType, repoUrl, category, tags, files } = body;
+
+  if (!name || !description || !sourceType) {
+    return NextResponse.json(
+      { error: "name, description, and sourceType are required" },
+      { status: 400 }
+    );
+  }
+
+  const slug = slugify(name, { lower: true, strict: true });
+
+  const existing = await prisma.skill.findUnique({ where: { slug } });
+  if (existing) {
+    return NextResponse.json(
+      { error: "A skill with this name already exists" },
+      { status: 409 }
+    );
+  }
+
+  const skill = await prisma.skill.create({
+    data: {
+      slug,
+      name,
+      description,
+      readme: readme || null,
+      sourceType,
+      repoUrl: repoUrl || null,
+      category: category || null,
+      tags: tags || [],
+      authorId: session.user.id,
+      files: files?.length
+        ? {
+            create: files.map((f: { filename: string; content: string; path: string }) => ({
+              filename: f.filename,
+              content: f.content,
+              path: f.path || "/",
+            })),
+          }
+        : undefined,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      skillId: skill.id,
+      userId: session.user.id,
+      action: "PUBLISH",
+      details: { version: skill.version },
+    },
+  });
+
+  return NextResponse.json(skill, { status: 201 });
 }
